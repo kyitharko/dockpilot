@@ -1,0 +1,22 @@
+name: backend-dev
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: backend-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - "backend-mongodb-data:/data/db"
+
+  redis:
+    image: redis:7
+    container_name: backend-redis
+    ports:
+      - "6379:6379"
+
+  nginx:
+    image: nginx:latest
+    container_name: backend-nginx
+    ports:
+      - "8080:80"

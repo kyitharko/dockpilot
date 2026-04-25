@@ -1,0 +1,27 @@
+# This file intentionally contains a circular dependency.
+# It is used to demonstrate the error message produced by:
+#   ./myplatform stack validate examples/circular.yaml
+#
+# Expected error:
+#   circular dependency detected involving: serviceA, serviceB, serviceC
+
+name: circular-example
+
+services:
+  serviceA:
+    image: alpine:latest
+    depends_on:
+      - serviceC
+
+  serviceB:
+    image: alpine:latest
+    depends_on:
+      - serviceA
+
+  serviceC:
+    image: alpine:latest
+    depends_on:
+      - serviceB
+
+  standalone:
+    image: alpine:latest

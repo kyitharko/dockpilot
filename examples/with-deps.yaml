@@ -1,0 +1,31 @@
+name: backend-dev
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: backend-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - "backend-mongodb-data:/data/db"
+
+  redis:
+    image: redis:7
+    container_name: backend-redis
+    ports:
+      - "6379:6379"
+
+  api:
+    image: node:20
+    container_name: backend-api
+    depends_on:
+      - mongodb
+      - redis
+    environment:
+      MONGO_URI: mongodb://mongodb:27017/appdb
+      REDIS_HOST: redis
+    command:
+      - "node"
+      - "server.js"
+    ports:
+      - "3000:3000"
