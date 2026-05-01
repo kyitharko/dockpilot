@@ -46,7 +46,7 @@ func (e *Engine) Deploy(ctx context.Context, req DeployRequest) (*DeployResult, 
 		return nil, fmt.Errorf("container %q already exists — remove it first or use a different service name", cfg.Name)
 	}
 
-	resolvedPorts, err := resolveHostPorts(cfg.Ports)
+	resolvedPorts, err := e.resolveHostPorts(ctx, cfg.Ports)
 	if err != nil {
 		return nil, err
 	}
@@ -219,8 +219,12 @@ func (e *Engine) resolveConfig(req DeployRequest) (docker.ContainerConfig, error
 }
 
 // resolveHostPorts returns port mappings with free host ports.
-// If the preferred host port is busy it scans upward up to +100.
-func resolveHostPorts(ports []string) ([]string, error) {
+// It queries Docker for already-allocated ports (which may not be bound at the
+// OS level when Docker uses iptables instead of userland-proxy) and combines
+// that with an OS-level listener check. Scans up to +100 from the preferred port.
+func (e *Engine) resolveHostPorts(ctx context.Context, ports []string) ([]string, error) {
+	dockerPorts := e.dockerAllocatedPorts(ctx)
+
 	resolved := make([]string, len(ports))
 	for i, mapping := range ports {
 		parts := strings.Split(mapping, ":")
@@ -231,7 +235,7 @@ func resolveHostPorts(ports []string) ([]string, error) {
 		preferredHost := parts[len(parts)-2]
 		containerPart := parts[len(parts)-1]
 
-		actualHost, err := findFreePort(preferredHost)
+		actualHost, err := findFreePort(preferredHost, dockerPorts)
 		if err != nil {
 			return nil, fmt.Errorf("cannot find a free port near %s: %w", preferredHost, err)
 		}
@@ -245,15 +249,49 @@ func resolveHostPorts(ports []string) ([]string, error) {
 	return resolved, nil
 }
 
-// findFreePort returns preferred if the TCP port is available, otherwise
-// scans upward within preferred+100.
-func findFreePort(preferred string) (string, error) {
+// dockerAllocatedPorts returns the set of host port numbers currently allocated
+// by any Docker container. This catches ports held via iptables that have no
+// OS-level socket (i.e. when userland-proxy is disabled).
+func (e *Engine) dockerAllocatedPorts(ctx context.Context) map[int]bool {
+	used := map[int]bool{}
+	containers, err := e.docker.ListContainers(ctx, "")
+	if err != nil {
+		return used // best-effort; fall back to OS-only check
+	}
+	for _, c := range containers {
+		for _, binding := range strings.Split(c.Ports, ", ") {
+			// Format: "IP:HostPort->ContainerPort/proto" (e.g. "0.0.0.0:27017->27017/tcp")
+			arrowIdx := strings.Index(binding, "->")
+			if arrowIdx == -1 {
+				continue
+			}
+			hostPart := binding[:arrowIdx]
+			colonIdx := strings.LastIndex(hostPart, ":")
+			if colonIdx == -1 {
+				continue
+			}
+			if port, err := strconv.Atoi(hostPart[colonIdx+1:]); err == nil {
+				used[port] = true
+			}
+		}
+	}
+	return used
+}
+
+// findFreePort returns preferred if it is available, otherwise scans upward
+// within preferred+100. A port is considered unavailable if it is in excluded
+// (Docker-allocated) or cannot be bound at the OS level.
+func findFreePort(preferred string, excluded map[int]bool) (string, error) {
 	base, err := strconv.Atoi(preferred)
 	if err != nil {
 		return "", fmt.Errorf("invalid port %q: %w", preferred, err)
 	}
 	for offset := 0; offset <= 100; offset++ {
-		candidate := strconv.Itoa(base + offset)
+		port := base + offset
+		if excluded[port] {
+			continue
+		}
+		candidate := strconv.Itoa(port)
 		ln, err := net.Listen("tcp", ":"+candidate)
 		if err == nil {
 			ln.Close()
