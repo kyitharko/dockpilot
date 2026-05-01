@@ -1,6 +1,6 @@
 package main
 
-import "myplatform/cmd"
+import "dockpilot/cmd"
 
 func main() {
 	cmd.Execute()

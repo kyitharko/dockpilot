@@ -1,4 +1,4 @@
-module myplatform
+module dockpilot
 
 go 1.22
 

@@ -2,73 +2,53 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
-	"myplatform/internal/runtime"
-	"myplatform/internal/utils"
+	"dockpilot/internal/docker"
+	"dockpilot/internal/engine"
+	"dockpilot/internal/utils"
 )
 
-var statusNameFlag string
-
 var statusCmd = &cobra.Command{
-	Use:   "status <service|container>",
-	Short: "Show the runtime status of a deployed service instance",
-	Long: `Show the runtime status of a deployed service instance.
-
-The argument can be:
-  - A service name                  myplatform status mongodb
-  - A full container name from list myplatform status myplatform-mongodb-2
-  - A service name + --name flag    myplatform status mongodb --name staging`,
-	Args: cobra.ExactArgs(1),
-	RunE: runStatus,
+	Use:   "status <service>",
+	Short: "Show runtime status of a deployed service",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runStatus,
 }
 
 func init() {
-	statusCmd.Flags().StringVarP(
-		&statusNameFlag, "name", "n", "",
-		"Instance suffix used at deploy time (only needed with a service name argument)",
-	)
 	rootCmd.AddCommand(statusCmd)
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	target, err := parseInstanceArg(args[0], statusNameFlag)
-	if err != nil {
-		return err
-	}
-
-	rt, err := runtime.NewDockerClient()
+	dc, err := docker.NewClient()
 	if err != nil {
 		return fmt.Errorf("connecting to Docker: %w", err)
 	}
-	defer rt.Close()
-	ctx := cmd.Context()
+	defer dc.Close()
 
-	exists, err := rt.ContainerExists(ctx, target.containerName)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		utils.PrintWarning(fmt.Sprintf("container %q has not been deployed", target.containerName))
-		return nil
-	}
+	eng := engine.New(dc)
+	name := strings.ToLower(args[0])
 
-	info, err := rt.InspectContainer(ctx, target.containerName)
+	status, err := eng.Status(cmd.Context(), name)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("  Service    : %s\n", target.cfg.Name)
-	fmt.Printf("  Container  : %s\n", info.Name)
-	fmt.Printf("  Image      : %s\n", info.Image)
-	fmt.Printf("  State      : %s\n", info.Status)
-	if info.Ports != "" {
-		fmt.Printf("  Ports      : %s\n", info.Ports)
+	fmt.Printf("  Service    : %s\n", status.Name)
+	fmt.Printf("  Container  : %s\n", status.Container)
+	fmt.Printf("  Image      : %s\n", status.Image)
+	fmt.Printf("  State      : %s\n", status.State)
+	if status.Ports != "" {
+		fmt.Printf("  Ports      : %s\n", status.Ports)
 	}
 	fmt.Println()
 
-	if info.Running {
+	if status.Running {
 		utils.PrintSuccess("Service is running")
+	} else if status.State == "not deployed" {
+		utils.PrintWarning("Service has not been deployed")
 	} else {
 		utils.PrintWarning("Service is stopped")
 	}

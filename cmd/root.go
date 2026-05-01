@@ -4,25 +4,26 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"myplatform/internal/runtime"
-	"myplatform/internal/utils"
+	"dockpilot/internal/docker"
+	"dockpilot/internal/utils"
 )
 
-// rootCmd is the base command. All subcommands attach to it via their init().
 var rootCmd = &cobra.Command{
-	Use:   "myplatform",
-	Short: "CLI platform tool for deploying common services with Docker",
-	Long: `myplatform deploys and manages Docker containers with sensible production defaults.
-Supports built-in services (mongodb, postgres, redis, nginx) and any image from
-Docker Hub or a private registry via the --image flag.`,
+	Use:   "dockpilot",
+	Short: "Low-level Docker service executor",
+	Long: `dockpilot deploys and manages individual Docker containers using the Docker SDK.
+
+Built-in services: mongodb, postgres, redis, nginx
+Custom images:     dockpilot deploy myapp --image nginx:alpine
+
+Start the REST API server:
+  dockpilot server --port 8088`,
 
 	SilenceErrors: true,
 	SilenceUsage:  true,
 
-	// PersistentPreRunE pings the Docker daemon before any subcommand runs.
-	// If the daemon is unreachable the user gets a clear error immediately.
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		return runtime.CheckDaemon(cmd.Context())
+	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+		return docker.CheckDaemon(cmd.Context())
 	},
 }
 
